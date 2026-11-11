@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Stretch</title>
+<meta name="theme-color" content="#0b0d10">
+<meta name="color-scheme" content="dark">
+<!-- iOS home-screen app behaviour -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stretch">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #161a20;
+    --panel-2: #1f252d;
+    --text: #f2f4f7;
+    --muted: #8b95a3;
+    --accent: #3ddc97;
+    --accent-ink: #04140c;
+    --warn: #ffb547;
+    --danger: #ff6b6b;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+  .app {
+    min-height: 100%;
+    display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 16px);
+    max-width: 560px; margin: 0 auto;
+    gap: 14px;
+  }
+  .screen { display: none; flex: 1; flex-direction: column; gap: 14px; }
+  .screen.active { display: flex; }
+
+  /* Header */
+  .top { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
+  .progress-label { font-size: 1.15rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .progress-label b { color: var(--text); }
+  .wake { font-size: .8rem; color: var(--muted); }
+  .wake.on { color: var(--accent); }
+  .dots { display: flex; gap: 4px; }
+  .dots span { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-2); }
+  .dots span.done { background: var(--accent); opacity: .55; }
+  .dots span.current { background: var(--accent); }
+
+  /* Main card */
+  .card {
+    flex: 1;
+    background: var(--panel);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 20px 16px; text-align: center; gap: 8px;
+    transition: background-color .25s;
+  }
+  .card.flash { background: #1d4d38; }
+  .name { font-size: clamp(1.7rem, 7.5vw, 2.6rem); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+  .countdown {
+    font-size: clamp(6rem, 34vw, 11rem);
+    font-weight: 800; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
+    margin: 6px 0;
+  }
+  .countdown.paused { color: var(--warn); }
+  .status { font-size: 1.1rem; color: var(--muted); min-height: 1.4em; }
+  .bar { width: 100%; height: 10px; border-radius: 5px; background: var(--panel-2); overflow: hidden; margin-top: 8px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); }
+  .next { font-size: 1rem; color: var(--muted); margin-top: 10px; }
+  .next b { color: var(--text); font-weight: 600; }
+
+  /* Buttons */
+  button {
+    font: inherit; color: var(--text); background: var(--panel-2);
+    border: 0; border-radius: var(--radius);
+    min-height: 64px; padding: 0 16px;
+    font-size: 1.2rem; font-weight: 600;
+    touch-action: manipulation; cursor: pointer;
+  }
+  button:active { filter: brightness(1.25); transform: scale(.98); }
+  button:disabled { opacity: .35; }
+  .primary { background: var(--accent); color: var(--accent-ink); min-height: 88px; font-size: 1.8rem; font-weight: 800; width: 100%; }
+  .primary.pause { background: var(--warn); color: #241600; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .reset { background: transparent; color: var(--danger); min-height: 52px; font-size: 1rem; border: 1px solid #3a2326; }
+
+  /* Done screen */
+  .done-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; }
+  .done-wrap h1 { font-size: clamp(2.4rem, 11vw, 3.6rem); margin: 0; }
+  .done-wrap p { color: var(--muted); font-size: 1.2rem; margin: 0; }
+  .check { font-size: 5rem; color: var(--accent); line-height: 1; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== Timer screen ===== -->
+  <section class="screen active" id="screen-timer">
+    <div class="top">
+      <div class="progress-label" id="progress"></div>
+      <div class="wake" id="wake"></div>
+    </div>
+    <div class="dots" id="dots"></div>
+
+    <div class="card" id="card">
+      <div class="name" id="name"></div>
+      <div class="countdown" id="countdown" aria-live="off"></div>
+      <div class="status" id="status"></div>
+      <div class="bar"><div id="bar"></div></div>
+      <div class="next" id="next"></div>
+    </div>
+
+    <button class="primary" id="btn-main">Start</button>
+    <div class="row">
+      <button id="btn-back">◀︎ Back</button>
+      <button id="btn-skip">Skip ▶︎</button>
+    </div>
+    <button class="reset" id="btn-reset">Reset routine</button>
+  </section>
+
+  <!-- ===== Complete screen ===== -->
+  <section class="screen" id="screen-done">
+    <div class="done-wrap">
+      <div class="check">✓</div>
+      <h1>Routine complete</h1>
+      <p id="done-summary"></p>
+    </div>
+    <button class="primary" id="btn-restart">Restart routine</button>
+  </section>
+
+  <!-- PHASE 2: <section class="screen" id="screen-edit"> customisation screen goes here.
+       It only needs RoutineStore.load()/save() and App.setRoutine(). -->
+
+</div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   1. ROUTINE DATA + STORAGE
+   Phase 2 hooks: the edit screen reads RoutineStore.load(), mutates the
+   array, calls RoutineStore.save(routine) on every change, then
+   App.setRoutine(routine). Each stretch has a stable id so reordering
+   and renaming are simple.
+   ===================================================================== */
+const DEFAULT_ROUTINE = [
+  { name: 'Neck, left',                      duration: 15 },
+  { name: 'Neck, right',                     duration: 15 },
+  { name: 'Forward fold',                    duration: 60 },
+  { name: 'Glute, left',                     duration: 30 },
+  { name: 'Glute, right',                    duration: 30 },
+  { name: 'Lunge, left',                     duration: 30 },
+  { name: 'Lunge, right',                    duration: 30 },
+  { name: 'Reach through',                   duration: 30 },
+  { name: "Superman to child's pose",        duration: 60 },
+  { name: 'Cat-cow',                         duration: 60 },
+  { name: 'Doorway and overhead hand clasp', duration: 15 },
+];
+
+const RoutineStore = {
+  KEY: 'stretch.routine.v1',
+  newId() { return Math.random().toString(36).slice(2, 10); },
+  defaults() { return DEFAULT_ROUTINE.map(s => ({ id: this.newId(), ...s })); },
+  isValid(r) {
+    return Array.isArray(r) && r.length > 0 &&
+      r.every(s => s && typeof s.name === 'string' && Number.isFinite(s.duration) && s.duration > 0);
+  },
+  load() {
+    try {
+      const r = JSON.parse(localStorage.getItem(this.KEY));
+      if (this.isValid(r)) return r.map(s => ({ id: s.id || this.newId(), name: s.name, duration: Math.round(s.duration) }));
+    } catch (e) { /* storage blocked or corrupt: fall back to defaults */ }
+    return this.defaults();
+  },
+  save(routine) {
+    try { localStorage.setItem(this.KEY, JSON.stringify(routine)); return true; }
+    catch (e) { return false; }
+  },
+};
+
+/* =====================================================================
+   2. FEEDBACK: sound, vibration, screen wake lock
+   ===================================================================== */
+const Feedback = {
+  ctx: null,
+  // Must be called from a user tap (Start) so iOS allows audio later.
+  unlockAudio() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!this.ctx) this.ctx = new AC();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      // Play a silent blip inside the gesture to fully unlock on older iOS.
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      g.gain.value = 0; o.connect(g).connect(this.ctx.destination);
+      o.start(); o.stop(this.ctx.currentTime + 0.01);
+    } catch (e) {}
+  },
+  beep() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'suspended') ctx.resume();
+      const t0 = ctx.currentTime + 0.02;
+      // Two short rising tones.
+      [[880, 0], [1320, 0.22]].forEach(([freq, offset]) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        const t = t0 + offset;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.6, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+        o.connect(g).connect(ctx.destination);
+        o.start(t); o.stop(t + 0.2);
+      });
+    } catch (e) {}
+  },
+  vibrate() {
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+  },
+};
+
+const WakeLock = {
+  supported: 'wakeLock' in navigator,
+  sentinel: null,
+  wanted: false,
+  onChange: () => {},
+  async acquire() {
+    this.wanted = true;
+    if (!this.supported || this.sentinel || document.visibilityState !== 'visible') return this.onChange();
+    try {
+      this.sentinel = await navigator.wakeLock.request('screen');
+      this.sentinel.addEventListener('release', () => { this.sentinel = null; this.onChange(); });
+    } catch (e) { this.sentinel = null; }
+    this.onChange();
+  },
+  async release() {
+    this.wanted = false;
+    const s = this.sentinel; this.sentinel = null;
+    if (s) { try { await s.release(); } catch (e) {} }
+    this.onChange();
+  },
+  // The browser drops the lock whenever the page is hidden; re-take it on return.
+  reacquireIfWanted() { if (this.wanted) this.acquire(); },
+  get active() { return !!this.sentinel; },
+};
+
+/* =====================================================================
+   3. TIMER STATE MACHINE
+   status: 'ready'   – showing full duration, waiting for Start
+           'running' – counting down (endAt is a wall-clock timestamp, so
+                       throttled/backgrounded timers don't drift)
+           'paused'  – remainingMs frozen
+           'done'    – routine complete screen
+   ===================================================================== */
+const App = {
+  routine: [],
+  index: 0,
+  status: 'ready',
+  endAt: 0,
+  remainingMs: 0,
+  tickHandle: null,
+
+  init() {
+    this.routine = RoutineStore.load();
+    this.goTo(0);
+    WakeLock.onChange = () => UI.renderWake();
+    UI.bind();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        WakeLock.reacquireIfWanted();
+        this.tick(); // catch up if the stretch finished while hidden
+      }
+    });
+    UI.render();
+  },
+
+  // Phase 2: call after the routine is edited.
+  setRoutine(routine) {
+    this.routine = routine;
+    this.stopTicking();
+    this.goTo(Math.min(this.index, routine.length - 1));
+    UI.render();
+  },
+
+  get current() { return this.routine[this.index]; },
+  get durationMs() { return this.current.duration * 1000; },
+
+  goTo(i) {
+    this.stopTicking();
+    this.index = Math.max(0, Math.min(i, this.routine.length - 1));
+    this.status = 'ready';
+    this.remainingMs = this.durationMs;
+  },
+
+  start() {
+    Feedback.unlockAudio();
+    WakeLock.acquire();
+    if (this.status === 'ready' || this.status === 'paused') {
+      this.endAt = Date.now() + this.remainingMs;
+      this.status = 'running';
+      this.startTicking();
+    }
+    UI.render();
+  },
+
+  pause() {
+    if (this.status !== 'running') return;
+    this.remainingMs = Math.max(0, this.endAt - Date.now());
+    this.status = 'paused';
+    this.stopTicking();
+    UI.render();
+  },
+
+  mainButton() {
+    if (this.status === 'running') this.pause();
+    else this.start();
+  },
+
+  skip() {
+    if (this.index >= this.routine.length - 1) return this.complete();
+    this.goTo(this.index + 1);
+    UI.render();
+  },
+
+  back() {
+    this.goTo(this.index - 1); // on the first stretch this just resets it
+    UI.render();
+  },
+
+  reset() {
+    this.goTo(0);
+    WakeLock.release();
+    UI.show('timer');
+    UI.render();
+  },
+
+  complete() {
+    this.stopTicking();
+    this.status = 'done';
+    WakeLock.release();
+    UI.show('done');
+    UI.render();
+  },
+
+  // Countdown hit zero.
+  finishCurrent() {
+    Feedback.beep();
+    Feedback.vibrate();
+    UI.flash();
+    if (this.index >= this.routine.length - 1) return this.complete();
+    this.goTo(this.index + 1); // next stretch waits at full duration for Start
+    UI.render();
+  },
+
+  startTicking() {
+    this.stopTicking();
+    this.tickHandle = setInterval(() => this.tick(), 100);
+  },
+  stopTicking() {
+    if (this.tickHandle) clearInterval(this.tickHandle);
+    this.tickHandle = null;
+  },
+  tick() {
+    if (this.status !== 'running') return;
+    this.remainingMs = Math.max(0, this.endAt - Date.now());
+    if (this.remainingMs <= 0) this.finishCurrent();
+    else UI.renderTime();
+  },
+};
+
+/* =====================================================================
+   4. UI RENDERING
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+
+const UI = {
+  bind() {
+    $('btn-main').addEventListener('click', () => App.mainButton());
+    $('btn-skip').addEventListener('click', () => App.skip());
+    $('btn-back').addEventListener('click', () => App.back());
+    $('btn-reset').addEventListener('click', () => {
+      if (App.status === 'ready' && App.index === 0) return;
+      if (confirm('Reset routine to the first stretch?')) App.reset();
+    });
+    $('btn-restart').addEventListener('click', () => App.reset());
+  },
+
+  show(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === 'screen-' + name));
+  },
+
+  fmt(ms) {
+    const s = Math.ceil(ms / 1000);
+    if (s < 60) return String(s);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  },
+
+  render() {
+    const r = App.routine, i = App.index, cur = App.current;
+    if (App.status === 'done') {
+      const total = r.reduce((a, s) => a + s.duration, 0);
+      $('done-summary').textContent = `${r.length} stretches · ${this.fmt(total * 1000)}${total < 60 ? 's' : ''} total`;
+      return;
+    }
+    $('progress').innerHTML = `<b>${i + 1}</b> of ${r.length}`;
+    $('dots').innerHTML = r.map((_, k) => `<span class="${k < i ? 'done' : k === i ? 'current' : ''}"></span>`).join('');
+    $('name').textContent = cur.name;
+    const nxt = r[i + 1];
+    $('next').innerHTML = nxt ? `Next: <b>${escapeHtml(nxt.name)}</b> · ${nxt.duration}s` : 'Last stretch';
+
+    const btn = $('btn-main');
+    btn.classList.toggle('pause', App.status === 'running');
+    btn.textContent = { ready: 'Start', running: 'Pause', paused: 'Resume' }[App.status];
+    $('status').textContent = { ready: 'Tap Start when ready', running: '', paused: 'Paused' }[App.status];
+    $('countdown').classList.toggle('paused', App.status === 'paused');
+    $('btn-back').disabled = false;
+    this.renderTime();
+    this.renderWake();
+  },
+
+  renderTime() {
+    $('countdown').textContent = this.fmt(App.remainingMs);
+    const pct = 100 * (1 - App.remainingMs / App.durationMs);
+    $('bar').style.width = pct + '%';
+  },
+
+  renderWake() {
+    const el = $('wake');
+    if (!WakeLock.supported) { el.textContent = 'Screen may sleep'; el.className = 'wake'; return; }
+    el.textContent = WakeLock.active ? '☀︎ Screen on' : '';
+    el.className = 'wake' + (WakeLock.active ? ' on' : '');
+  },
+
+  flash() {
+    const c = $('card');
+    c.classList.add('flash');
+    setTimeout(() => c.classList.remove('flash'), 600);
+  },
+};
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* Home-screen icon, drawn at runtime so the file stays self-contained. */
+(function addIcon() {
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 180;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0b0d10'; g.fillRect(0, 0, 180, 180);
+    g.strokeStyle = '#3ddc97'; g.lineWidth = 14; g.lineCap = 'round';
+    g.beginPath(); g.arc(90, 96, 56, -Math.PI / 2 + 0.5, Math.PI * 1.5); g.stroke();
+    g.beginPath(); g.moveTo(90, 96); g.lineTo(90, 62); g.stroke();
+    g.fillStyle = '#3ddc97'; g.fillRect(76, 18, 28, 12);
+    const url = c.toDataURL('image/png');
+    for (const rel of ['apple-touch-icon', 'icon']) {
+      const l = document.createElement('link'); l.rel = rel; l.href = url; document.head.appendChild(l);
+    }
+  } catch (e) {}
+})();
+
+App.init();
+</script>
+</body>
+</html>
